@@ -15,8 +15,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    # Repo-level envs (used by the SSH step)
     env:
-      # Docker Hub images you are already using in the cluster
       IMAGE_GAME: docker.io/divyanjaliperera/game-service:latest
       IMAGE_ORDER: docker.io/divyanjaliperera/order-service:latest
       IMAGE_ANALYTICS: docker.io/divyanjaliperera/analytics-service:latest
@@ -31,10 +31,19 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script_stop: true
+          # export these envs on the remote shell
+          envs: REPO_DIR,NAMESPACE,IMAGE_GAME,IMAGE_ORDER,IMAGE_ANALYTICS
           script: |
             set -euo pipefail
 
-            # Ensure repo exists on EC2 and is up-to-date
+            # Safe defaults if any env is missing
+            REPO_DIR="${REPO_DIR:-COURSEWORK}"
+            NAMESPACE="${NAMESPACE:-default}"
+            IMAGE_GAME="${IMAGE_GAME:-docker.io/divyanjaliperera/game-service:latest}"
+            IMAGE_ORDER="${IMAGE_ORDER:-docker.io/divyanjaliperera/order-service:latest}"
+            IMAGE_ANALYTICS="${IMAGE_ANALYTICS:-docker.io/divyanjaliperera/analytics-service:latest}"
+
+            echo "Ensure repo exists on EC2 and is up-to-date"
             cd ~
             if [ ! -d "$REPO_DIR/.git" ]; then
               git clone https://github.com/DivyanjaliTP/COURSEWORK.git "$REPO_DIR"
@@ -46,13 +55,13 @@ jobs:
             kubectl get nodes
             kubectl get ns || true
 
-            # Apply (or re-apply) base manifests if you keep them in lugx-k8s
+            # Apply base manifests if present
             if [ -d "lugx-k8s" ]; then
               kubectl apply -f lugx-k8s/ || true
             fi
 
             echo "Roll deployments to requested images"
-            # Make sure these deployment and container names match your YAML
+            # Ensure deployment and container names match your cluster manifests
             kubectl -n "$NAMESPACE" set image deployment/game-service \
               game-service="$IMAGE_GAME"
             kubectl -n "$NAMESPACE" set image deployment/order-service \
