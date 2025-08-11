@@ -1,0 +1,69 @@
+name: Deploy to EC2 Kubernetes
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "lugx-k8s/**"
+      - "game-service/**"
+      - "order-service/**"
+      - "analytics-service/**"
+      - ".github/workflows/deploy.yaml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      # Docker Hub images you are already using in the cluster
+      IMAGE_GAME: docker.io/divyanjaliperera/game-service:latest
+      IMAGE_ORDER: docker.io/divyanjaliperera/order-service:latest
+      IMAGE_ANALYTICS: docker.io/divyanjaliperera/analytics-service:latest
+      NAMESPACE: default
+      REPO_DIR: COURSEWORK
+
+    steps:
+      - name: Deploy via SSH to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            # Ensure repo exists on EC2 and is up-to-date
+            cd ~
+            if [ ! -d "$REPO_DIR/.git" ]; then
+              git clone https://github.com/DivyanjaliTP/COURSEWORK.git "$REPO_DIR"
+            fi
+            cd "$REPO_DIR"
+            git pull
+
+            echo "Sanity checks"
+            kubectl get nodes
+            kubectl get ns || true
+
+            # Apply (or re-apply) base manifests if you keep them in lugx-k8s
+            if [ -d "lugx-k8s" ]; then
+              kubectl apply -f lugx-k8s/ || true
+            fi
+
+            echo "Roll deployments to requested images"
+            # Make sure these deployment and container names match your YAML
+            kubectl -n "$NAMESPACE" set image deployment/game-service \
+              game-service="$IMAGE_GAME"
+            kubectl -n "$NAMESPACE" set image deployment/order-service \
+              order-service="$IMAGE_ORDER"
+            kubectl -n "$NAMESPACE" set image deployment/analytics-service \
+              analytics-service="$IMAGE_ANALYTICS"
+
+            echo "Wait for rollouts"
+            kubectl -n "$NAMESPACE" rollout status deploy/game-service --timeout=180s
+            kubectl -n "$NAMESPACE" rollout status deploy/order-service --timeout=180s
+            kubectl -n "$NAMESPACE" rollout status deploy/analytics-service --timeout=180s
+
+            echo "Current pods"
+            kubectl -n "$NAMESPACE" get pods -o wide
