@@ -1,0 +1,6 @@
+.ssh/
+.kube/
+.local/
+.cache/
+.docker/
+.bash_history
